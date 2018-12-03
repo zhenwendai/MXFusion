@@ -17,6 +17,7 @@ from .kernel import NativeKernel
 from ....variables import Variable
 from ....variables import PositiveTransformation
 from .....util.customop import broadcast_to_w_samples
+from .....util.util import slice_axis
 
 
 class StationaryKernel(NativeKernel):
@@ -128,3 +129,25 @@ class StationaryKernel(NativeKernel):
         replicant = super(StationaryKernel, self).replicate_self(attribute_map)
         replicant.ARD = self.ARD
         return replicant
+
+    def sample_basis_functions(self, F, num_samples, **kernel_params):
+        """
+        """
+        offset = len(self.name) + 1
+        params = {k[offset:]: v for k, v in kernel_params.items() if
+                  k.startswith(self.name + '_')}
+        if self.active_dims is None:
+            return self.draw_fourier_samples(F=F, num_samples=num_samples,
+                                             **params)
+        else:
+            f = self.draw_fourier_samples(F=F, num_samples=num_samples,
+                                          **params)
+
+            def func(F, X):
+                X = slice_axis(F, X, axis=-1, indices=self.active_dims)
+                return f(F, X)
+
+            return func
+
+    def draw_fourier_samples(self, F, num_samples, lengthscale, variance):
+        raise NotImplementedError

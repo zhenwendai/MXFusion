@@ -13,6 +13,7 @@
 # ==============================================================================
 
 
+import numpy as np
 from .stationary import StationaryKernel
 from .....util.customop import broadcast_to_w_samples
 
@@ -70,3 +71,17 @@ class RBF(StationaryKernel):
         """
         R2 = self._compute_R2(F, X, lengthscale, variance, X2=X2)
         return F.exp(R2 / -2) * broadcast_to_w_samples(F, variance, R2.shape)
+
+    def draw_fourier_samples(self, F, num_samples, lengthscale, variance):
+        W = F.random.normal(shape=(self.input_dim, num_samples),
+                            dtype=self.dtype, ctx=self.ctx) / \
+                F.expand_dims(lengthscale, axis=-1)
+        b = 2 * np.pi * F.random.uniform(
+            shape=(1, num_samples), dtype=self.dtype, ctx=self.ctx)
+
+        def basis_function(F, X):
+            basis_alpha = F.sqrt(2 * variance / num_samples)
+            bases = basis_alpha * F.cos(
+                F.broadcast_add(F.linalg.gemm2(X, W), b))
+            return bases
+        return basis_function

@@ -400,3 +400,46 @@ class SVGPRegression(Module):
         rep.kernel = self.kernel.replicate_self(attribute_map)
         rep.mean_func = None if self.mean_func is None else self.mean_func.replicate_self(attribute_map)
         return rep
+
+    def draw_parametric_samples(self, F, variables, num_samples=1,
+                                approx_samples=5000):
+        lengthscale = variables[self.kernel.lengthscale][0]
+        variance = variables[self.kernel.variance][0]
+        Z = variables[self.inducing_inputs][0]
+        qU_mean = variables[self._extra_graphs[0].qU_mean][0]
+        S_W = variables[self._extra_graphs[0].qU_cov_W]
+        S_diag = variables[self._extra_graphs[0].qU_cov_diag]
+        S = F.linalg.syrk(S_W) + make_diagonal(F, S_diag)
+        qU_cov_L = F.linalg.potrf(S)
+
+        basis_func = self.kernel.draw_fourier_samples(
+            F, approx_samples, lengthscale, variance)
+
+        # Computer coefficients
+        PhiT = basis_func(F, Z)
+        Kuu_t = F.linalg.syrk(PhiT)
+        L_t = F.linalg.potrf(Kuu_t)
+        LinvPhiT = F.linalg.trsm(L_t, PhiT)
+        w_mean = F.linalg.gemm2(LinvPhiT, F.linalg.trsm(L_t, qU_mean), True,
+                                False)
+        LinvLc = F.linalg.trsm(L_t, qU_cov_L)
+        PhiTLinvTLinvLc = F.linalg.gemm2(LinvPhiT, LinvLc, True, False)
+        w_cov = F.eye(approx_samples, dtype=self.dtype, ctx=self.ctx) - \
+            F.linalg.syrk(LinvPhiT, transpose=True) + \
+            F.linalg.syrk(PhiTLinvTLinvLc)
+        w_cov_L = F.linalg.potrf(w_cov)
+
+        # Draw random parametric functions
+        r = F.random.normal(shape=(num_samples, approx_samples),
+                            dtype=self.dtype, ctx=self.ctx)
+        weights = F.expand_dims(w_mean, axis=0) + \
+            F.expand_dims(F.linalg.gemm2(r, w_cov_L, False, True), axis=-1)
+
+        def parametric_sample(F, x):
+            nSamples, N = x.shape[0], x.shape[1]
+            x_flat = F.reshape(x, shape=(-1, x.shape[-1]))
+            basis = basis_func(F, x_flat)
+            basis = F.reshape(basis, shape=(nSamples, N, -1))
+            return F.linalg.gemm2(basis, weights)
+
+        return parametric_sample

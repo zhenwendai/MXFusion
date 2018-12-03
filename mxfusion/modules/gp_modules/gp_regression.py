@@ -378,23 +378,19 @@ class GPRegression(Module):
         rep.mean_func = None if self.mean_func is None else self.mean_func.replicate_self(attribute_map)
         return rep
 
-    def draw_parametric_samples(self, F, variables, num_samples=1,
+    def sample_approx_functions(self, F, variables, num_samples=1,
                                 approx_samples=5000):
         lengthscale = variables[self.kernel.lengthscale][0]
         variance = variables[self.kernel.variance][0]
-        input_dim = self.kernel.input_dim
         X = variables[self.X][0]
         Y = variables[self.random_variable][0]
         noise_var = variables[self.noise_var][0]
 
-        # Draw random fourious features
-        W = F.random.normal(shape=(input_dim, approx_samples), dtype=self.dtype, ctx=self.ctx) / F.expand_dims(lengthscale, axis=-1)
-        b = 2 * np.pi * F.random.uniform(
-            shape=(1, approx_samples), dtype=self.dtype, ctx=self.ctx)
+        basis_func = self.kernel.draw_fourier_samples(
+            F, approx_samples, lengthscale, variance)
 
         # Computer coefficients
-        PhiT = F.sqrt(2 * variance / approx_samples) * \
-            F.cos(F.linalg.gemm2(X, W) + b)
+        PhiT = basis_func(F, X)
         C = F.eye(approx_samples, dtype=self.dtype, ctx=self.ctx) + \
             F.linalg.syrk(PhiT, transpose=True) / noise_var
         w_var_inv_L = F.linalg.potrf(C)
@@ -403,19 +399,16 @@ class GPRegression(Module):
                                transpose=True)
 
         # Draw random parametric functions
-        basis_alpha = F.sqrt(2 * variance / approx_samples)
         r = F.random.normal(shape=(num_samples, approx_samples),
                             dtype=self.dtype, ctx=self.ctx)
         weights = F.expand_dims(w_mean, axis=0) + \
             F.expand_dims(F.linalg.trsm(w_var_inv_L, r, rightside=True),
                           axis=-1)
-            # F.expand_dims(F.linalg.gemm2(r, w_var_inv_L, False, True), axis=-1)
 
         def parametric_sample(F, x):
             nSamples, N = x.shape[0], x.shape[1]
             x_flat = F.reshape(x, shape=(-1, x.shape[-1]))
-            basis = basis_alpha * F.cos(
-                F.broadcast_add(F.linalg.gemm2(x_flat, W), b))
+            basis = basis_func(F, x_flat)
             basis = F.reshape(basis, shape=(nSamples, N, -1))
             return F.linalg.gemm2(basis, weights)
 

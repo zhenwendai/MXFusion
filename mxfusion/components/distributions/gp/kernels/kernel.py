@@ -264,6 +264,11 @@ class Kernel(MXFusionFunction):
                 self, n).replicate_self(attribute_map))
         return replicant
 
+    def sample_basis_functions(self, F, num_samples, **kernel_params):
+        """
+        """
+        raise NotImplementedError
+
 
 class NativeKernel(Kernel):
     """

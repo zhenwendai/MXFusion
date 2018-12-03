@@ -389,7 +389,6 @@ class SparseGPRegression(Module):
                                 approx_samples=5000):
         lengthscale = variables[self.kernel.lengthscale][0]
         variance = variables[self.kernel.variance][0]
-        input_dim = self.kernel.input_dim
         Z = variables[self.inducing_inputs][0]
         wv = variables[self._extra_graphs[0].wv][0]
         L = variables[self._extra_graphs[0].L][0]
@@ -398,18 +397,11 @@ class SparseGPRegression(Module):
         qU_mean = F.linalg.gemm2(Kuu, wv)
         qU_cov_L = F.linalg.trsm(LA, L, transpose=True, rightside=True)
 
-        # X = variables[self.X]
-        # Y = variables[self.random_variable]
-        # noise_var = variables[self.noise_var]
-
-        # Draw random fourious features
-        W = F.random.normal(shape=(input_dim, approx_samples), dtype=self.dtype, ctx=self.ctx) / F.expand_dims(lengthscale, axis=-1)
-        b = 2 * np.pi * F.random.uniform(
-            shape=(1, approx_samples), dtype=self.dtype, ctx=self.ctx)
+        basis_func = self.kernel.draw_fourier_samples(
+            F, approx_samples, lengthscale, variance)
 
         # Computer coefficients
-        PhiT = F.sqrt(2 * variance / approx_samples) * \
-            F.cos(F.linalg.gemm2(Z, W) + b)
+        PhiT = basis_func(F, Z)
         Kuu_t = F.linalg.syrk(PhiT)
         L_t = F.linalg.potrf(Kuu_t)
         LinvPhiT = F.linalg.trsm(L_t, PhiT)
@@ -423,7 +415,6 @@ class SparseGPRegression(Module):
         w_cov_L = F.linalg.potrf(w_cov)
 
         # Draw random parametric functions
-        basis_alpha = F.sqrt(2 * variance / approx_samples)
         r = F.random.normal(shape=(num_samples, approx_samples),
                             dtype=self.dtype, ctx=self.ctx)
         weights = F.expand_dims(w_mean, axis=0) + \
@@ -432,8 +423,7 @@ class SparseGPRegression(Module):
         def parametric_sample(F, x):
             nSamples, N = x.shape[0], x.shape[1]
             x_flat = F.reshape(x, shape=(-1, x.shape[-1]))
-            basis = basis_alpha * F.cos(
-                F.broadcast_add(F.linalg.gemm2(x_flat, W), b))
+            basis = basis_func(F, x_flat)
             basis = F.reshape(basis, shape=(nSamples, N, -1))
             return F.linalg.gemm2(basis, weights)
 
