@@ -265,7 +265,7 @@ class SVGPRegression(Module):
     """
 
     def __init__(self, X, kernel, noise_var, inducing_inputs=None,
-                 inducing_num=10, mean_func=None,
+                 num_inducing=10, mean_func=None,
                  rand_gen=None, dtype=None, ctx=None):
         if not isinstance(X, Variable):
             X = Variable(value=X)
@@ -357,7 +357,7 @@ class SVGPRegression(Module):
 
     @staticmethod
     def define_variable(X, kernel, noise_var, shape=None, inducing_inputs=None,
-                        inducing_num=10, mean_func=None, rand_gen=None,
+                        num_inducing=10, mean_func=None, rand_gen=None,
                         dtype=None, ctx=None):
         """
         Creates and returns a variable drawn from a Stochastic variational sparse Gaussian process regression with Gaussian likelihood.
@@ -401,7 +401,7 @@ class SVGPRegression(Module):
         rep.mean_func = None if self.mean_func is None else self.mean_func.replicate_self(attribute_map)
         return rep
 
-    def draw_parametric_samples(self, F, variables, num_samples=1,
+    def sample_approx_functions(self, F, variables, num_samples=1,
                                 approx_samples=5000):
         lengthscale = variables[self.kernel.lengthscale][0]
         variance = variables[self.kernel.variance][0]
