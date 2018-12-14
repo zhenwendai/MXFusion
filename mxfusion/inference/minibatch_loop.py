@@ -83,7 +83,7 @@ class MinibatchInferenceLoop(GradLoop):
                           end='')
                 trainer.step(batch_size=self.batch_size,
                              ignore_stale_grad=True)
-                L_e += loss.asscalar() / self.batch_size
+                L_e += loss.asscalar()
                 n_batches += 1
             if verbose:
                 print('epoch-loss: {} '.format(L_e / n_batches))

@@ -36,6 +36,7 @@ class SparseGPRegressionLogPdf(VariationalInference):
     def __init__(self, model, posterior, observed, jitter=0.):
         super(SparseGPRegressionLogPdf, self).__init__(
             model=model, posterior=posterior, observed=observed)
+        self.log_pdf_scaling = 1
         self.jitter = jitter
 
     def compute(self, F, variables):

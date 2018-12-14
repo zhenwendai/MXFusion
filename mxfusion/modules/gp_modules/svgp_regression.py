@@ -95,7 +95,7 @@ class SVGPRegressionLogPdf(VariationalInference):
         logL = logL + F.sum(F.sum(F.square(LinvKuf)/noise_var_m, axis=-1),
                             axis=-1)*D/2.
         logL = logL + F.sum(F.sum(Linvmu*LinvKufY, axis=-1), axis=-1)
-        logL = logL + self.model.U.factor.log_pdf_scaling*KL_u
+        logL = self.log_pdf_scaling*logL + KL_u
         return logL
 
 
