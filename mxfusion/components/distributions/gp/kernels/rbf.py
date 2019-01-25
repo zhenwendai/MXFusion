@@ -15,7 +15,6 @@
 
 import numpy as np
 from .stationary import StationaryKernel
-from .....util.customop import broadcast_to_w_samples
 
 
 class RBF(StationaryKernel):
@@ -70,7 +69,7 @@ class RBF(StationaryKernel):
         :rtype: MXNet NDArray or MXNet Symbol
         """
         R2 = self._compute_R2(F, X, lengthscale, variance, X2=X2)
-        return F.exp(R2 / -2) * broadcast_to_w_samples(F, variance, R2.shape)
+        return F.exp(R2 / -2) * F.expand_dims(variance, axis=-1)
 
     def draw_fourier_samples(self, F, num_samples, lengthscale, variance):
         W = F.random.normal(shape=(self.input_dim, num_samples),
