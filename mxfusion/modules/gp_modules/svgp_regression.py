@@ -128,6 +128,8 @@ class SVGPRegressionMeanVariancePrediction(SamplingAlgorithm):
         kern = self.model.kernel
         kern_params = kern.fetch_parameters(variables)
 
+        print(noise_var.shape)
+
         S = F.linalg.syrk(S_W) + make_diagonal(F, S_diag)
 
         Kuu = kern.K(F, Z, **kern_params)
@@ -154,14 +156,16 @@ class SVGPRegressionMeanVariancePrediction(SamplingAlgorithm):
             var = Ktt - F.sum(F.square(LinvKxt), axis=-2) + \
                 F.sum(tmp*LinvKxt, axis=-2)
             if not self.noise_free:
-                var += noise_var
+                var = F.expand_dims(var, axis=-1) + noise_var
         else:
             Ktt = kern.K(F, X, **kern_params)
             tmp = F.linalg.gemm2(LinvSLinvT, LinvKxt)
             var = Ktt - F.linalg.syrk(LinvKxt, True) + \
                 F.linalg.gemm2(LinvKxt, tmp, True, False)
             if not self.noise_free:
-                var += F.eye(N, dtype=X.dtype) * noise_var
+                var = F.expand_dims(var, axis=-1) + \
+                    F.reshape(F.eye(N, dtype=X.dtype), shape=(1, N, N, 1)) * \
+                    F.expand_dims(noise_var, axis=-2)
 
         outcomes = {self.model.Y.uuid: (mu, var)}
 
