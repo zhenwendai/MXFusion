@@ -68,3 +68,7 @@ class SigmoidBernoulli(UnivariateDistribution):
         bernoulli = SigmoidBernoulli(prob_true=prob_true)
         bernoulli._generate_outputs(shape=shape)
         return bernoulli.random_variable
+
+    def log_pdf(self, F, variables, targets=None):
+        dist_impl = self.get_distribution_instance(variables)
+        return dist_impl.log_pdf(variables[self.random_variable.uuid])

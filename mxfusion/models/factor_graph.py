@@ -22,7 +22,7 @@ from ..components import Distribution, Factor, ModelComponent, Variable, Variabl
 from ..modules.module import Module
 from ..common.exceptions import ModelSpecificationError, InferenceError
 from ..components.functions import FunctionEvaluation
-from ..components.variables.runtime_variable import expectation
+from ..components.variables.runtime_variable import expectation, sum_keep_samples
 
 
 class FactorGraph(object):
@@ -189,7 +189,7 @@ class FactorGraph(object):
 
         return self._var_ties
 
-    def log_pdf(self, F, variables, targets=None):
+    def log_pdf(self, F, variables, targets=None, keep_first_dim=False):
         """
         Compute the logarithm of the probability/probability density of a set of random variables in the factor graph.
         The set of random variables are specified in the "target" argument and any necessary conditional variables are
@@ -220,8 +220,12 @@ class FactorGraph(object):
                     variables[uuid] = v
             elif isinstance(f, Distribution):
                 if targets is None or f.random_variable.uuid in targets:
-                    logL = logL + F.sum(expectation(F, f.log_pdf(
-                        F=F, variables=variables)))
+                    logL_f = f.log_pdf(F=F, variables=variables)
+                    if keep_first_dim:
+                        logL_f = F.reshape(logL_f, shape=logL_f.shape[:2]+(-1,)).sum(axis=-1)
+                    else:
+                        logL_f = sum_keep_samples(logL_f)
+                    logL = logL + logL_f
             elif isinstance(f, Module):
                 if targets is None:
                     module_targets = [v.uuid for _, v in f.outputs
@@ -230,8 +234,12 @@ class FactorGraph(object):
                     module_targets = [v.uuid for _, v in f.outputs
                                       if v.uuid in targets]
                 if len(module_targets) > 0:
-                    logL = logL + F.sum(expectation(F, f.log_pdf(
-                        F=F, variables=variables, targets=module_targets)))
+                    logL_f = f.log_pdf(F=F, variables=variables, targets=module_targets)
+                    if keep_first_dim:
+                        logL_f = F.reshape(logL_f, shape=logL_f.shape[:2]+(-1,)).sum(axis=-1)
+                    else:
+                        logL_f = sum_keep_samples(logL_f)
+                    logL = logL + logL_f
             else:
                 raise ModelSpecificationError("There is an object in the factor graph that isn't a factor." +
                                               "That shouldn't happen.")
@@ -580,9 +588,9 @@ class FactorGraph(object):
             reconcile_direction('predecessor', previous_graph[previous_c], current_graph[current_c], new_level,
                                 component_map)
             """
-            TODO Reconciling in both directions currently breaks the reconciliation process and can cause multiple 
-            previous_uuid's to map to the same current_uuid. It's unclear why that happens. This shouldn't be necessary 
-            until we implement multi-output Factors though (and even then, only if not all the outputs are in a 
+            TODO Reconciling in both directions currently breaks the reconciliation process and can cause multiple
+            previous_uuid's to map to the same current_uuid. It's unclear why that happens. This shouldn't be necessary
+            until we implement multi-output Factors though (and even then, only if not all the outputs are in a
             named chain).
             """
             # reconcile_direction('successor', previous_graph[c], current_graph[current_c], new_level, component_map)

@@ -13,6 +13,7 @@
 # ==============================================================================
 
 
+import mxnet as mx
 from mxnet.ndarray.ndarray import NDArray
 from mxnet.symbol.symbol import Symbol
 
@@ -127,3 +128,8 @@ def arrays_as_samples(F, arrays):
         return [{k: as_samples(F, v, max_num_samples) for k, v in a.items()} if isinstance(a, dict) else as_samples(F, a, max_num_samples) for a in arrays]
     else:
         return arrays
+
+
+def sum_keep_samples(array):
+    array = mx.nd.reshape(array, shape=(array.shape[0], -1))
+    return mx.nd.sum(array, axis=1)

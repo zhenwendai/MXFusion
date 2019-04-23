@@ -14,6 +14,7 @@
 
 
 from .inference_alg import InferenceAlgorithm, SamplingAlgorithm
+from ..components.variables.runtime_variable import expectation
 
 
 class VariationalInference(InferenceAlgorithm):
@@ -105,4 +106,5 @@ class StochasticVariationalInference(VariationalInference):
         variables.update(samples)
         logL = self.model.log_pdf(F=F, variables=variables)
         logL = logL - self.posterior.log_pdf(F=F, variables=variables)
+        logL = F.sum(expectation(F, logL))
         return -logL, -logL

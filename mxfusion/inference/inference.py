@@ -18,6 +18,7 @@ import io
 import json
 import numpy as np
 import mxnet as mx
+from mxnet.gluon.data import ArrayDataset
 import zipfile
 from .inference_parameters import InferenceParameters
 from ..common.config import get_default_device, get_default_dtype
@@ -123,6 +124,12 @@ class Inference(object):
     def _initialize_params(self):
         self.params.initialize_params(self._graphs, self.observed_variable_UUIDs)
 
+    def update_shape_constants(self, data):
+        data_shapes = {i: d.shape for i, d in zip(self.observed_variable_UUIDs,
+                                                  data)}
+        shape_constants = discover_shape_constants(data_shapes, self._graphs)
+        self.params.update_constants(shape_constants)
+
     def initialize(self, **kw):
         """
         Initialize the inference method with the shapes of observed variables.
@@ -131,24 +138,24 @@ class Inference(object):
         corresponding variables (mxnet.ndarray)
         or their shape (tuples).
         """
+        data = [kw[v] for v in self.observed_variable_names]
+        if len(data) > 0:
+            if not all(isinstance(d, type(d)) for d in data):
+                raise InferenceError("All items in the keywords must be of the same type. "
+                                     "Either all shapes or all data objects.")
+            if isinstance(data[0], (tuple, list)):
+                data_shapes = {i: d for i, d in zip(self.observed_variable_UUIDs, data)}
+            elif isinstance(data[0], mx.nd.ndarray.NDArray):
+                data_shapes = {i: d.shape for i, d in zip(self.observed_variable_UUIDs,
+                                                          data)}
+            else:
+                raise InferenceError("Keywords not of type mx.nd.NDArray or tuple/list "
+                                     "for shapes passed into initialization.")
+            shape_constants = discover_shape_constants(data_shapes,
+                                                       self._graphs)
+            self.params.update_constants(shape_constants)
         if not self._initialized:
-            data = [kw[v] for v in self.observed_variable_names]
-            if len(data) > 0:
-                if not all(isinstance(d, type(d)) for d in data):
-                    raise InferenceError("All items in the keywords must be of the same type. "
-                                         "Either all shapes or all data objects.")
 
-                if isinstance(data[0], (tuple, list)):
-                    data_shapes = {i: d for i, d in zip(self.observed_variable_UUIDs, data)}
-                elif isinstance(data[0], mx.nd.ndarray.NDArray):
-                    data_shapes = {i: d.shape for i, d in zip(self.observed_variable_UUIDs,
-                                                              data)}
-                else:
-                    raise InferenceError("Keywords not of type mx.nd.NDArray or tuple/list "
-                                         "for shapes passed into initialization.")
-                shape_constants = discover_shape_constants(data_shapes,
-                                                           self._graphs)
-                self.params.update_constants(shape_constants)
             self._initialize_params()
             self._initialized = True
         else:
@@ -335,23 +342,60 @@ class TransferInference(Inference):
             inference_algorithm=inference_algorithm, constants=constants,
             hybridize=hybridize, dtype=dtype, context=context)
 
-    def generate_executor(self, **kw):
-
-        data_shapes = [kw[v] for v in self.observed_variable_names]
-        if not self._initialized:
-            self._initialize_run(self._var_tie, self._inherited_params,
-                                 data_shapes)
-            self._initialized = True
-
-        infr = self._inference_algorithm.create_executor(
-            data_def=self.observed_variable_UUIDs, params=self.params,
-            var_ties=self.params.var_ties)
-        if self._hybridize:
-            infr.hybridize()
-        infr.initialize()
-        return infr
-
     def _initialize_params(self):
         self.params.initialize_with_carryover_params(
             self._graphs, self.observed_variable_UUIDs, self._var_tie,
             init_outcomes(self._inherited_params))
+
+
+class TransferInferenceMiniBatch(TransferInference):
+    """
+    The abstract Inference method for transferring the outcome of one inference
+    method to another.
+
+    :param inference_algorithm: The applied inference algorithm
+    :type inference_algorithm: InferenceAlgorithm
+    :param constants: Specify a list of model variables as constants
+    :type constants: {Variable: mxnet.ndarray}
+    :param hybridize: Whether to hybridize
+     the MXNet Gluon block of the inference method.
+    :type hybridize: boolean
+    :param dtype: data type for internal numerical representation
+    :type dtype: {numpy.float64, numpy.float32, 'float64', 'float32'}
+    :param context: The MXNet context
+    :type context: {mxnet.cpu or mxnet.gpu}
+    """
+    def __init__(self, inference_algorithm, infr_params, batch_size, var_tie=None,
+                 constants=None, hybridize=False, dtype=None, context=None):
+        super(TransferInferenceMiniBatch, self).__init__(
+            inference_algorithm=inference_algorithm, infr_params=infr_params, var_tie=var_tie, constants=constants,
+            hybridize=hybridize, dtype=dtype, context=context)
+        self.batch_size = batch_size
+
+    def run(self, **kwargs):
+        """
+        Run the inference method.
+
+        :param kwargs: The keyword arguments specify the data for inference self. The key of each argument is the name
+        of the corresponding variable in model definition and the value of the argument is the data in numpy
+        array format.
+        :returns: the samples of target variables (if not specified, the samples of all the latent variables)
+        :rtype: {UUID: samples}
+        """
+        data = [kwargs[v] for v in self.observed_variable_names]
+        self.initialize(**kwargs)
+        executor = self.create_executor()
+
+        data_loader = mx.gluon.data.DataLoader(
+                ArrayDataset(*data), batch_size=self.batch_size, shuffle=True,
+                last_batch='rollover')
+
+        out_list = []
+        for i, data_batch in enumerate(data_loader):
+            if not isinstance(data_batch, list or tuple):
+                data_batch = [data_batch]
+            self.update_shape_constants(data_batch)
+            out = executor(mx.nd.zeros(1, ctx=self.mxnet_context), *data_batch)
+            out_list.append(out)
+        out = mx.nd.concat(*out_list, dim=0)
+        return out
